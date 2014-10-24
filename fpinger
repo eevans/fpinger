@@ -1,0 +1,67 @@
+#!/usr/bin/env python
+
+
+FPING="/usr/bin/fping"
+FPING_COUNT = 5
+
+
+def parse_fping_line(line):
+    parts = line.split()
+    if not len(parts): return {}
+
+    r = {}
+    host = parts[0];
+    rtts = []
+    for part in parts[-FPING_COUNT:]:
+        if part != '-':
+            rtts.append(float(part))
+    r[host] = {"min": min(rtts), "max": max(rtts), "avg": sum(rtts) / len(rtts)}
+
+    return r
+
+def parse_fping_lines(lines):
+    r = {}
+    for line in lines.split('\n'):
+        r.update(parse_fping_line(line))
+    return r
+
+def to_samples_json(timestamp, fping):
+    r = []
+    for (key, value) in fping.items():
+        for (k, v) in value.items():
+            r.append({
+                "resource": resource_object(key),
+                "timestamp": timestamp,
+                "name": k,
+                "type": "GAUGE",
+                "value": v
+            })
+
+    return json.dumps(r)
+
+def resource_name(name):
+    return "%s" % name
+
+def resource_object(name):
+    return dict(id=resource_name(name), attributes=dict(descr="latency"))
+
+
+if __name__ == '__main__':
+    import sys, json
+    from subprocess import PIPE, Popen
+    from time import time
+
+    if not (len(sys.argv) == 2):
+        print >>sys.stderr, "Usage: %s <hosts.txt>" % sys.argv[0]
+        sys.exit(1)
+
+    hosts = sys.argv[1]
+    
+    args = [FPING, '-C', str(FPING_COUNT), '-q', '-e']
+
+    with open(hosts) as inf:
+        proc = Popen(args, stdin=inf, stdout=PIPE, stderr=PIPE)
+        (out,err) = proc.communicate()
+
+        print to_samples_json(time()*1e3, parse_fping_lines(err))
+
